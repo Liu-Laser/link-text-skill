@@ -41,7 +41,6 @@ translate/
 *.wav
 *.mp4
 *.md
-!README.md
 
 # Test files
 test_*.json
