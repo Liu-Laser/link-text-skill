@@ -1,0 +1,1 @@
+Get-WmiObject Win32_Process | Where-Object {$_.Name -eq 'python.exe'} | Select-Object ProcessId, ExecutablePath, CommandLine
