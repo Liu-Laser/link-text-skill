@@ -1,0 +1,38 @@
+{
+  "name": "link-text",
+  "version": "3.0.0",
+  "description": "智能视频转录系统 - 将视频/音频转换为中文文本记录，支持智能分段、质量优化和主题分类。",
+  "author": {
+    "name": "Sapiens AI",
+    "email": "ai@sapiens.dev"
+  },
+  "commands": [
+    {
+      "name": "transcribe-media",
+      "description": "智能转录：下载视频并转换为结构化中文文本，支持自动分段、质量检测和主题分类。",
+      "prompt": "将视频转为文字 {{input}}",
+      "autocomplete": "{{input}}"
+    },
+    {
+      "name": "video-to-text",
+      "description": "视频转文字：直接转换视频文件或链接为格式化的简体中文Markdown转录文本。",
+      "prompt": "把视频转为文字 {{input}}"
+    }
+  ],
+  "keywords": ["transcription", "video-to-text", "speech-to-text", "download", "whisper", "zh", "chinese", "simplified", "简体中文", "智能转录", "质量优化", "分段处理"],
+  "dependencies": {
+    "yt-dlp": ">=2024.01.0",
+    "ffmpeg": ">=4.0",
+    "openai-whisper": ">=20230909",
+    "opencc": ">=1.1.1",
+    "psutil": ">=5.9.0"
+  },
+  "features": [
+    "智能2分钟分段转录",
+    "自动质量检测和重录",
+    "CPU自适应优化",
+    "智能主题识别",
+    "自动标点添加",
+    "静默监控机制"
+  ]
+}
