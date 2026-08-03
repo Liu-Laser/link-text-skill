@@ -1,7 +1,7 @@
 ---
 name: link-text
 description: 智能视频转录系统 - 将视频/音频转换为中文文本记录，支持智能分段、质量优化和主题分类
-version: 1.0.0
+version: 3.0.0
 metadata:
   openclaw:
     homepage: https://github.com/JimLiu/baoyu-skills#link-text
