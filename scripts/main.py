@@ -14,6 +14,11 @@ from datetime import datetime
 from pathlib import Path
 from utils import convert_to_simplified_chinese, ensure_simplified_chinese
 
+try:
+    from opencc import OpenCC
+except ImportError:
+    OpenCC = None
+
 def convert_to_simplified_chinese(text):
     """将文本转换为简体中文"""
     try:

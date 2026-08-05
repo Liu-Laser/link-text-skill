@@ -68,7 +68,15 @@ def main():
 
     # Step 2: 分段转录
     print("\n[Step 2] 开始分段转录...")
-    print("设置: 每段2分钟，使用 Whisper large-v3 模型")
+
+    # 根据下载策略显示不同的信息
+    if video_info.get('audio_only'):
+        print("检测到仅音频下载，直接进行转录...")
+    elif video_info.get('video_to_audio'):
+        print("检测到视频转音频，已提取音频，开始转录...")
+    else:
+        print("设置: 每段2分钟，使用 Whisper large-v3 模型")
+
     try:
         segments = transcribe_audio_segments(audio_path, segment_length=120)  # 2分钟 = 120秒
         print(f"转录完成，共 {len(segments)} 个段落")
@@ -265,7 +273,7 @@ def find_tool_paths():
     return ffmpeg_path, yt_dlp_path
 
 def download_media(source, task_dir):
-    """从 URL 下载视频音频，使用系统中的工具路径"""
+    """从 URL 下载视频音频，使用智能下载策略"""
     ffmpeg_path, yt_dlp_path = find_tool_paths()
 
     if not yt_dlp_path:
@@ -280,33 +288,80 @@ def download_media(source, task_dir):
         audio_dir = os.path.join(task_dir, 'audio')
         video_dir = os.path.join(task_dir, 'videos')
 
-        # 使用 yt-dlp 下载音频 - 添加 --no-playlist 避免下载合集
-        cmd = yt_dlp_path.split() + [source, '--no-playlist', '-o', os.path.join(video_dir, f'{output_name}.%(ext)s')]
+        # 检查链接类型并制定下载策略
+        print(f"[信息] 分析视频链接: {source}")
 
-        print(f"执行命令: {' '.join(cmd)}")
-        subprocess.run(cmd, check=True)
+        # 如果是本地文件，直接使用
+        if not source.startswith('http'):
+            if source.endswith(('.mp3', '.wav', '.m4a', '.flac')):
+                # 音频文件，直接复制
+                audio_file = os.path.join(audio_dir, f'{output_name}')
+                copy_file_to_task_dir(source, task_dir, 'audio')
+                return audio_file, {'source': source, 'downloaded': True, 'ffmpeg_path': ffmpeg_path, 'video_files': []}
+            elif source.endswith(('.mp4', '.avi', '.mkv', '.mov')):
+                # 视频文件，需要提取音频
+                video_file = copy_file_to_task_dir(source, task_dir, 'videos')
+                audio_file = os.path.join(audio_dir, f'{output_name}.wav')
+                subprocess.run([
+                    ffmpeg_path,
+                    '-i', video_file,
+                    '-vn',
+                    '-acodec', 'pcm_s16le',
+                    '-ar', '16000',
+                    audio_file,
+                    '-y'
+                ], check=True)
+                return audio_file, {'source': source, 'downloaded': True, 'ffmpeg_path': ffmpeg_path, 'video_files': [video_file]}
+
+        # 网络链接分析
+        print("[步骤1] 尝试只下载音频...")
+        audio_only_cmd = yt_dlp_path.split() + [
+            source,
+            '--no-playlist',
+            '-f', 'bestaudio[ext=m4a]/bestaudio',  # 使用最佳音频格式，支持B站
+            '-o', os.path.join(audio_dir, f'{output_name}.m4a')
+        ]
+
+        try:
+            print(f"尝试命令: {' '.join(audio_only_cmd)}")
+            subprocess.run(audio_only_cmd, check=True, timeout=120)
+
+            # 检查是否成功下载了音频
+            audio_file = os.path.join(audio_dir, f'{output_name}.wav')
+            if os.path.exists(os.path.join(audio_dir, f'{output_name}.m4a')):
+                print("[成功] 仅下载音频成功")
+                # 转换为标准格式
+                subprocess.run([
+                    ffmpeg_path,
+                    '-i', os.path.join(audio_dir, f'{output_name}.m4a'),
+                    '-vn',
+                    '-acodec', 'pcm_s16le',
+                    '-ar', '16000',
+                    audio_file,
+                    '-y'
+                ], check=True)
+                return audio_file, {'source': source, 'downloaded': True, 'ffmpeg_path': ffmpeg_path, 'video_files': [], 'audio_only': True}
+        except Exception as e:
+            print(f"[信息] 仅下载音频失败: {e}")
+
+        print("[步骤2] 尝试下载视频（包含音频）...")
+        # 如果无法单独下载音频，下载视频文件
+        video_download_cmd = yt_dlp_path.split() + [
+            source,
+            '--no-playlist',
+            '-f', 'best[ext=mp4]/best[ext=m4v]/best',
+            '-o', os.path.join(video_dir, f'{output_name}.%(ext)s')
+        ]
+
+        print(f"执行命令: {' '.join(video_download_cmd)}")
+        subprocess.run(video_download_cmd, check=True)
 
         # 查找下载的文件
         video_files = glob.glob(os.path.join(video_dir, f'{output_name}.*'))
+        print(f"[信息] 下载的文件: {video_files}")
 
-        # 优先查找音频文件
-        audio_files = glob.glob(os.path.join(video_dir, f'{output_name}.*m4a'))
-        if audio_files:
-            # 直接使用 M4A 音频文件
-            audio_file = os.path.join(audio_dir, f'{output_name}.wav')
-            # 转换 M4A 到 WAV
-            subprocess.run([
-                ffmpeg_path,
-                '-i', audio_files[0],
-                '-vn',
-                '-acodec', 'pcm_s16le',
-                '-ar', '16000',
-                audio_file,
-                '-y'
-            ], check=True)
-            return audio_file, {'source': source, 'downloaded': True, 'ffmpeg_path': ffmpeg_path, 'video_files': video_files}
-        elif video_files:
-            # 提取音频为 WAV
+        if video_files:
+            # 从视频中提取音频
             audio_file = os.path.join(audio_dir, f'{output_name}.wav')
             subprocess.run([
                 ffmpeg_path,
@@ -318,7 +373,7 @@ def download_media(source, task_dir):
                 '-y'
             ], check=True)
 
-            return audio_file, {'source': source, 'downloaded': True, 'ffmpeg_path': ffmpeg_path, 'video_files': video_files}
+            return audio_file, {'source': source, 'downloaded': True, 'ffmpeg_path': ffmpeg_path, 'video_files': video_files, 'video_to_audio': True}
 
     except Exception as e:
         print(f"下载错误: {e}")

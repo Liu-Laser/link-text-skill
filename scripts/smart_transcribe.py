@@ -33,8 +33,10 @@ def main():
     # 启动转录任务
     task_process = None
     try:
-        # 构建命令
-        cmd = ['python', 'main_simplified.py', input_source, output_base_dir]
+        # 构建命令 - 使用绝对路径
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        main_script = os.path.join(script_dir, 'main_simplified.py')
+        cmd = ['python', main_script, input_source, output_base_dir]
 
         print("[执行] 启动转录任务...")
         task_process = subprocess.Popen(
@@ -46,16 +48,9 @@ def main():
             universal_newlines=True
         )
 
-        # 实时捕获输出
+        # 等待任务完成（不定期检查）
         print("[监控] 任务已启动，等待完成...")
-        while True:
-            # 检查进程是否完成
-            return_code = task_process.poll()
-            if return_code is not None:
-                print(f"\n[完成] 转录任务结束 (退出码: {return_code})")
-                break
-
-            time.sleep(10)  # 每10秒检查一次
+        task_process.wait()  # 等待进程自然结束
 
         # 获取输出
         stdout, stderr = task_process.communicate()
