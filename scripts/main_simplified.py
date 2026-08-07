@@ -10,9 +10,24 @@ import json
 import glob
 import re
 import uuid
+import time
 from datetime import datetime
 from pathlib import Path
 from utils import convert_to_simplified_chinese, ensure_simplified_chinese, clean_and_normalize_text
+
+def log_progress(message, task_dir=None):
+    """记录进度到日志文件"""
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    log_message = f"[{timestamp}] {message}"
+    print(log_message)
+
+    if task_dir:
+        log_file = os.path.join(task_dir, 'transcription.log')
+        try:
+            with open(log_file, 'a', encoding='utf-8') as f:
+                f.write(log_message + '\n')
+        except Exception as e:
+            print(f"[警告] 无法写入日志文件: {e}")
 
 def main():
     if len(sys.argv) < 2:
@@ -50,9 +65,9 @@ def main():
         # 创建子目录
         Path(os.path.join(temp_task_dir, 'audio')).mkdir(exist_ok=True)
         Path(os.path.join(temp_task_dir, 'videos')).mkdir(exist_ok=True)
-        Path(os.path.join(temp_task_dir, 'output')).mkdir(exist_ok=True)
 
         print(f"临时任务目录已创建: {temp_task_dir}")
+        log_progress("任务初始化完成", temp_task_dir)
     except Exception as e:
         print(f"创建任务目录失败: {e}")
         sys.exit(1)
@@ -62,12 +77,35 @@ def main():
     try:
         audio_path, video_info = download_media(input_source, temp_task_dir)
         print(f"音频文件已下载: {audio_path}")
+        log_progress(f"音频下载完成: {audio_path}", temp_task_dir)
     except Exception as e:
         print(f"下载失败: {e}")
+        log_progress(f"下载失败: {e}", temp_task_dir)
         sys.exit(1)
+
+    # 获取音频时长
+    # 获取音频时长和格式信息
+    total_minutes = 0
+    audio_format = os.path.splitext(audio_path)[1][1:].lower()
+    log_progress(f"音频格式: {audio_format.upper()}", temp_task_dir)
+
+    if video_info.get('m4a_direct'):
+        log_progress("使用m4a格式直接转录，无转换开销", temp_task_dir)
+
+    try:
+        import subprocess
+        result = subprocess.run(['ffprobe', '-v', 'quiet', '-show_entries', 'format=duration', '-of', 'csv=p=0', audio_path],
+                              capture_output=True, text=True)
+        if result.returncode == 0:
+            duration_seconds = float(result.stdout.strip())
+            total_minutes = duration_seconds / 60
+            log_progress(f"音频时长: {total_minutes:.1f} 分钟", temp_task_dir)
+    except:
+        pass
 
     # Step 2: 分段转录
     print("\n[Step 2] 开始分段转录...")
+    log_progress("开始转录过程", temp_task_dir)
 
     # 根据下载策略显示不同的信息
     if video_info.get('audio_only'):
@@ -77,11 +115,17 @@ def main():
     else:
         print("设置: 每段2分钟，使用 Whisper large-v3 模型")
 
+    print("\n⚠️  重要提示: Whisper 转录是一个耗时的过程，需要根据音频长度计算处理时间")
+    print(f"音频时长约 {total_minutes:.1f} 分钟，预计需要 {total_minutes * 0.3:.1f} - {total_minutes * 0.6:.1f} 分钟")
+    print("转录完成后会继续处理，请耐心等待...")
+
     try:
-        segments = transcribe_audio_segments(audio_path, segment_length=120)  # 2分钟 = 120秒
-        print(f"转录完成，共 {len(segments)} 个段落")
+        segments = transcribe_audio_segments(audio_path, segment_length=120, task_dir=temp_task_dir)  # 2分钟 = 120秒
+        print(f"\n✅ 转录完成，共 {len(segments)} 个段落")
+        log_progress(f"转录完成，共 {len(segments)} 个段落", temp_task_dir)
     except Exception as e:
-        print(f"转录失败: {e}")
+        print(f"\n❌ 转录失败: {e}")
+        log_progress(f"转录失败: {e}", temp_task_dir)
         sys.exit(1)
 
     # Step 3: 确保简体中文
@@ -152,7 +196,9 @@ def main():
         'model': 'Whisper large-v3',
         'segment_duration': 120,  # 2分钟
         'topic': video_title,
-        'language': 'zh-CN'
+        'language': 'zh-CN',
+        'audio_format': os.path.splitext(audio_path)[1][1:],  # m4a or wav
+        'direct_m4a': video_info.get('m4a_direct', False)  # 是否直接使用m4a
     }
 
     info_file = os.path.join(temp_task_dir, 'task_info.json')
@@ -168,8 +214,9 @@ def main():
     print(f"  {temp_task_dir}/")
     print(f"  ├── audio/          # 音频文件（每2分钟一段）")
     print(f"  ├── videos/         # 原始视频文件")
-    print(f"  ├── output/         # 转录结果")
+    print(f"  ├──转录文件.md      # 转录结果")
     print(f"  └── task_info.json  # 任务信息")
+    print(f"  └── transcription.log # 转录日志")
     print(f"  主题: {video_title}")
     print("  语言: 简体中文")
     print("="*60)
@@ -200,23 +247,14 @@ def main():
                 except:
                     pass
 
-        # 构建监控器命令
-        monitor_cmd = ['python', 'monitor_transcription.py', temp_task_dir]
-        if audio_duration:
-            monitor_cmd.append(str(audio_duration))
-
-        # 在后台启动监控器
-        process = subprocess.Popen(monitor_cmd,
-                                 stdout=subprocess.PIPE,
-                                 stderr=subprocess.PIPE,
-                                 text=True)
-
-        print(f"[监控] 监控器已启动 (PID: {process.pid})")
-        print(f"[信息] 如需监控进度，请查看输出文件: {output_path}")
+        # 简化版本：直接开始转录，不使用监控器
+        print(f"[信息] 音频时长: {audio_duration:.1f} 分钟")
+        print(f"[提示] 转录过程可能需要 {audio_duration * 0.5:.1f} - {audio_duration * 1.0:.1f} 分钟")
+        print(f"[提示] 请耐心等待，完成后会自动生成转录文件")
 
     except Exception as e:
-        print(f"[警告] 启动监控器失败: {e}")
-        print("[提示] 任务已完成，请手动检查输出文件")
+        print(f"[警告] 准备转录时出现错误: {e}")
+        print("[提示] 请检查音频文件和依赖项")
 
 def get_video_name_from_url(input_source, output_base_dir):
     """从URL获取视频名称"""
@@ -327,20 +365,17 @@ def download_media(source, task_dir):
             subprocess.run(audio_only_cmd, check=True, timeout=120)
 
             # 检查是否成功下载了音频
-            audio_file = os.path.join(audio_dir, f'{output_name}.wav')
-            if os.path.exists(os.path.join(audio_dir, f'{output_name}.m4a')):
+            m4a_file = os.path.join(audio_dir, f'{output_name}.m4a')
+            if os.path.exists(m4a_file):
                 print("[成功] 仅下载音频成功")
-                # 转换为标准格式
-                subprocess.run([
-                    ffmpeg_path,
-                    '-i', os.path.join(audio_dir, f'{output_name}.m4a'),
-                    '-vn',
-                    '-acodec', 'pcm_s16le',
-                    '-ar', '16000',
-                    audio_file,
-                    '-y'
-                ], check=True)
-                return audio_file, {'source': source, 'downloaded': True, 'ffmpeg_path': ffmpeg_path, 'video_files': [], 'audio_only': True}
+                print("[优化] 直接使用m4a文件，无需转换为wav")
+
+                # 使用ffmpeg读取m4a文件内容，但保留m4a文件名
+                # 这样可以避免额外的磁盘空间使用和转换时间
+                print("[信息] 将在转录时使用ffmpeg直接处理m4a文件")
+                audio_file = m4a_file
+
+                return audio_file, {'source': source, 'downloaded': True, 'ffmpeg_path': ffmpeg_path, 'video_files': [], 'audio_only': True, 'direct_m4a': True}
         except Exception as e:
             print(f"[信息] 仅下载音频失败: {e}")
 
@@ -381,7 +416,63 @@ def download_media(source, task_dir):
 
     raise Exception("音频文件下载失败")
 
-def transcribe_audio_segments(audio_path, segment_length=120):  # 默认2分钟
+def load_audio_directly(audio_path):
+    """
+    直接加载音频文件，支持m4a等格式
+    使用ffmpeg读取，避免格式转换
+    """
+    try:
+        import subprocess
+        import tempfile
+        import soundfile as sf
+        import numpy as np
+
+        # 检查文件格式
+        file_ext = os.path.splitext(audio_path)[1].lower()
+
+        if file_ext == '.wav':
+            # WAV文件可以直接读取
+            data, samplerate = sf.read(audio_path)
+            if data.ndim > 1:
+                data = np.mean(data, axis=1).astype(np.float32)
+            return data, samplerate
+        else:
+            # 其他格式使用ffmpeg转换为WAV后读取
+            print(f"使用ffmpeg读取{file_ext}格式文件...")
+
+            # 创建临时文件
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_wav:
+                temp_wav_path = temp_wav.name
+
+            try:
+                # 使用ffmpeg转换
+                result = subprocess.run([
+                    'ffmpeg',
+                    '-i', audio_path,
+                    '-vn',
+                    '-acodec', 'pcm_s16le',
+                    '-ar', '16000',
+                    temp_wav_path,
+                    '-y'
+                ], capture_output=True, check=True, timeout=60)
+
+                # 读取转换后的文件
+                data, samplerate = sf.read(temp_wav_path)
+                if data.ndim > 1:
+                    data = np.mean(data, axis=1).astype(np.float32)
+
+                print(f"成功读取音频，时长: {len(data)/samplerate:.1f}秒")
+                return data, samplerate
+
+            finally:
+                # 删除临时文件
+                if os.path.exists(temp_wav_path):
+                    os.unlink(temp_wav_path)
+
+    except Exception as e:
+        raise Exception(f"音频文件读取失败: {str(e)}")
+
+def transcribe_audio_segments(audio_path, segment_length=120, task_dir=None):  # 默认2分钟
     """分段转录音频，每 segment_length 秒一段"""
     if not audio_path or not os.path.exists(audio_path):
         raise Exception("音频文件未找到")
@@ -389,12 +480,11 @@ def transcribe_audio_segments(audio_path, segment_length=120):  # 默认2分钟
     try:
         import whisper
         import numpy as np
-        import soundfile as sf
+        import tempfile
 
-        # 读取音频文件
-        data, samplerate = sf.read(audio_path)
-        if data.ndim > 1:
-            data = np.mean(data, axis=1).astype(np.float32)
+        # 使用改进的音频加载方法
+        print(f"[信息] 开始加载音频文件: {os.path.basename(audio_path)}")
+        data, samplerate = load_audio_directly(audio_path)
 
         # 计算分段数量
         total_samples = len(data)
@@ -402,23 +492,51 @@ def transcribe_audio_segments(audio_path, segment_length=120):  # 默认2分钟
         total_segments = int(total_samples / segment_samples) + (1 if total_samples % segment_samples > 0 else 0)
 
         total_minutes = total_samples / samplerate / 60
-        print(f"音频总时长: {total_minutes:.1f} 分钟，将分为 {total_segments} 段，每段 {segment_length//60} 分钟")
+
+        print(f"[信息] 音频总时长: {total_minutes:.1f} 分钟，将分为 {total_segments} 段，每段 {segment_length//60} 分钟")
+        log_progress(f"开始转录: {total_segments} 段音频", task_dir)
 
         # 加载 Whisper large-v3 模型
-        print("加载 Whisper large-v3 模型...")
+        print("[信息] 开始加载 Whisper large-v3 模型...")
+        log_progress("正在加载 Whisper large-v3 模型...", task_dir)
+        start_time = time.time()
+
         model = whisper.load_model('large-v3')
 
+        load_time = time.time() - start_time
+        print(f"[信息] Whisper 模型加载完成，耗时: {load_time:.1f} 秒")
+        log_progress(f"Whisper 模型加载完成，耗时: {load_time:.1f} 秒", task_dir)
+
         segments = []
+        estimated_time_per_segment = max(total_minutes / total_segments * 1.2, 2)  # 预估每段处理时间（包含缓冲），至少2秒
+        total_estimated_time = estimated_time_per_segment * total_segments
+
+        print(f"[进度] 预计总处理时间: {total_estimated_time:.1f} 分钟")
+        print(f"[进度] 预估每段处理时间: {estimated_time_per_segment:.1f} 分钟")
+        print("[进度] 开始转录过程...（这可能需要较长时间）")
+        log_progress(f"预计总处理时间: {total_estimated_time:.1f} 分钟", task_dir)
+
+        transcription_start_time = time.time()
+
         for i in range(total_segments):
+            segment_start_time = time.time()
+
             start_sample = i * segment_samples
             end_sample = min((i + 1) * segment_samples, total_samples)
             segment_data = data[start_sample:end_sample]
 
-            print(f"转录第 {i+1}/{total_segments} 段...")
+            segment_minutes = start_sample // samplerate // 60
+            segment_seconds = start_sample // samplerate % 60
+
+            print(f"[进度] 正在处理第 {i+1}/{total_segments} 段 (开始时间: {segment_minutes}:{segment_seconds:02d})...")
+            print(f"[进度] 已完成: {((i+1)/total_segments)*100:.1f}%, 剩余约 {((total_segments-i-1)*estimated_time_per_segment):.1f} 分钟")
+            log_progress(f"处理第 {i+1}/{total_segments} 段", task_dir)
 
             # 转录当前段
+            segment_start_trans = time.time()
             result = model.transcribe(audio=segment_data, language='zh', fp16=False, task='transcribe', beam_size=5, best_of=5, temperature=0.0)
             segment_text = result.get('text', '').strip()
+            segment_trans_time = time.time() - segment_start_trans
 
             # 转换为简体中文
             simplified_text = convert_to_simplified_chinese(segment_text)
@@ -429,15 +547,33 @@ def transcribe_audio_segments(audio_path, segment_length=120):  # 默认2分钟
                 'start_time': i * segment_length,
                 'end_time': min((i + 1) * segment_length, total_samples/samplerate),
                 'text': simplified_text,
-                'raw_text': simplified_text
+                'raw_text': simplified_text,
+                'transcription_time': segment_trans_time
             })
+
+            segment_total_time = time.time() - segment_start_time
+            log_progress(f"第 {i+1} 段完成，耗时: {segment_total_time:.1f}s (转录: {segment_trans_time:.1f}s)", task_dir)
+
+            # 显示进度
+            progress_pct = ((i + 1) / total_segments) * 100
+            elapsed = time.time() - transcription_start_time
+            remaining = ((total_segments - i - 1) * estimated_time_per_segment)
+            print(f"[进度] 整体进度: {progress_pct:.1f}% | 已用时: {elapsed/60:.1f}分钟 | 预计剩余: {remaining/60:.1f}分钟")
+
+        total_transcription_time = time.time() - transcription_start_time
+        print(f"[完成] 所有 {total_segments} 段转录完成，总耗时: {total_transcription_time/60:.1f} 分钟")
+        log_progress(f"所有 {total_segments} 段转录完成，总耗时: {total_transcription_time/60:.1f} 分钟", task_dir)
 
         return segments
 
     except ImportError:
-        raise Exception("Whisper 未安装。请运行: pip install openai-whisper")
+        error_msg = "Whisper 未安装。请运行: pip install openai-whisper"
+        log_progress(error_msg, task_dir)
+        raise Exception(error_msg)
     except Exception as e:
-        raise Exception(f"转录错误: {str(e)}")
+        error_msg = f"转录错误: {str(e)}"
+        log_progress(error_msg, task_dir)
+        raise Exception(error_msg)
 
 def generate_table_of_contents(processed_segments):
     """生成目录"""

@@ -24,7 +24,7 @@ def main():
     output_base_dir = sys.argv[2] if len(sys.argv) > 2 else r"C:\Users\lenovo\translate"
 
     print("="*60)
-    print("智能转录工具 - 无超时限制")
+    print("智能转录工具 - 简化版")
     print("="*60)
 
     # 检查是否已经有正在运行的任务
@@ -48,14 +48,13 @@ def main():
             universal_newlines=True
         )
 
-        # 等待任务完成（不定期检查）
+        # 等待任务完成
         print("[监控] 任务已启动，等待完成...")
         task_process.wait()  # 等待进程自然结束
 
-        # 获取输出
+        # 获取并显示输出
         stdout, stderr = task_process.communicate()
 
-        # 显示输出
         if stdout:
             print("\n[输出] 任务执行结果:")
             print(stdout)
@@ -63,6 +62,10 @@ def main():
         if stderr:
             print("\n[错误] 任务执行错误:")
             print(stderr)
+
+        # 显示完成提示
+        print("\n[完成] 转录任务已结束")
+        print(f"[提示] 输出文件位于: {output_base_dir}/{{video_id}}/")
 
     except KeyboardInterrupt:
         print("\n[中断] 用户中断任务")
