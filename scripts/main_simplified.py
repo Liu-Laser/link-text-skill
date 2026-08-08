@@ -5,6 +5,13 @@ Link-Text 主脚本 - 下载媒体并转录为简体中文
 
 import sys
 import os
+
+# Windows 编码修复
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 import subprocess
 import json
 import glob

@@ -12,7 +12,12 @@ import re
 import uuid
 from datetime import datetime
 from pathlib import Path
-from utils import convert_to_simplified_chinese, ensure_simplified_chinese
+try:
+    from improved_converter import convert_to_simplified_chinese, detect_traditional_chars
+    print("使用改进的繁简转换器")
+except ImportError:
+    from utils import convert_to_simplified_chinese, ensure_simplified_chinese
+    print("使用原始繁简转换器")
 
 try:
     from opencc import OpenCC
@@ -573,7 +578,7 @@ topic: {video_title if video_title else '未知主题'}
     content += toc_content
     content += "\n---\n\n"
 
-    # 添加转录内容
+    # 添加转录内容（仅保留主要内容，不保留详细时间戳）
     if processed_segments and len(processed_segments) > 0:
         content += "## 转录内容\n\n"
 
@@ -591,7 +596,9 @@ topic: {video_title if video_title else '未知主题'}
                 # 如果没有分句，显示原始文本
                 content += f"{segment['text']}\n\n"
 
-            content += "---\n\n"
+            # 移除详细的分隔线，使格式更简洁
+            if segment['id'] < len(processed_segments):
+                content += "\n"
 
     # 添加总结
     content += "## 总结\n\n"

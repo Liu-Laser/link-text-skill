@@ -22,8 +22,7 @@ Scripts in `scripts/` subdirectory. `{baseDir}` = this SKILL.md's directory path
 | Script | Purpose |
 |--------|---------|
 | `scripts/main_simplified.py` | 核心转录脚本 |
-| `scripts/smart_transcribe.py` | 智能监控版本（推荐） |
-| `scripts/monitor_transcription.py` | 任务监控器 |
+| `scripts/smart_transcribe.py` | 智能转录版本（推荐） |
 | `scripts/utils.py` | 工具函数库 |
 | `scripts/install_requirements.py` | 依赖安装脚本 |
 
@@ -33,7 +32,7 @@ Scripts in `scripts/` subdirectory. `{baseDir}` = this SKILL.md's directory path
 # 基础使用
 {baseDir}/scripts/main_simplified.py <URL>
 
-# 智能监控版本（推荐）
+# 智能转录版本（推荐）
 {baseDir}/scripts/smart_transcribe.py <URL>
 
 # 指定输出目录
@@ -76,6 +75,7 @@ translate/{video-id}/
 - 自动重试机制
 - 智能断句
 - 生成结构化输出
+- 简化监控流程
 
 ## 环境变量配置
 
